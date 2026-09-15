@@ -289,7 +289,7 @@ rate limiter unavailable
 → do not create the URL
 ```
 
-This prevents a Redis outage from becoming
+This prevents a Redis outage from becoming an opportunity to bypass rate limiting and create URLs without abuse controls.
 
 ## Configuration
 
@@ -412,7 +412,11 @@ PONG
 
 ### Start the Application
 
-Run the application through the IDE or configured Java/Maven startup process.
+Run the application with Maven:
+
+```powershell
+mvn compile exec:java
+```
 
 By default, the HTTP server listens on:
 
