@@ -22,6 +22,8 @@ The system uses PostgreSQL for persistence, Redis for caching, and Redis-backed 
 - Redis
 - Jedis
 - JUnit 5
+- Mockito
+- Testcontainers
 
 ## API
 
