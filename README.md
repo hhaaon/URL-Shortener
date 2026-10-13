@@ -487,13 +487,54 @@ Opening the returned short URL causes the service to respond with an HTTP redire
 
 ## Testing
 
-The project uses JUnit 5.
+The project uses JUnit 5, Mockito, and Testcontainers.
+
+Requirements for the complete suite:
+
+- Java 21
+- Maven
+- Docker
 
 Run the complete automated test suite with:
 
 ```powershell
 mvn test
 ```
+
+Docker is required because the integration tests start disposable PostgreSQL and Redis containers.
+
+### Integration Tests
+
+The project includes integration tests against real PostgreSQL and Redis instances using Testcontainers.
+
+Docker must be running before executing the complete test suite.
+
+The integration tests cover:
+
+- saving and loading short URLs through the real PostgreSQL JDBC repository
+- translating PostgreSQL unique-key violations into `ShortCodeCollisionException`
+- Redis positive-cache round trips
+- Redis cache misses
+- Redis negative-cache entries
+- execution of the Redis Lua token-bucket script
+- rate-limit capacity exhaustion
+- independent rate-limit buckets for different clients
+
+Testcontainers starts disposable PostgreSQL and Redis containers and exposes their dynamically mapped ports to the tests. The tests do not depend on PostgreSQL or Redis being installed directly on the developer machine.
+
+Run only the infrastructure integration tests:
+
+```powershell
+mvn -Dtest=PostgresShortUrlRepositoryIntegrationTest,RedisShortUrlCacheIntegrationTest,RedisRateLimiterIntegrationTest test
+```
+
+Run the complete test suite:
+
+```powershell
+mvn test
+```
+
+The integration tests intentionally use real infrastructure because mock-based tests cannot prove that the SQL constraints, Redis commands, TTL behavior, or Lua rate-limiter script work correctly against the actual services.
 
 Run only the HTTP-server tests with:
 
