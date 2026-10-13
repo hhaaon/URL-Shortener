@@ -1,5 +1,5 @@
 import redis.clients.jedis.RedisClient;
-import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.exceptions.JedisException;
 import redis.clients.jedis.params.SetParams;
 
 public class RedisShortUrlCache implements ShortUrlCache{
@@ -30,7 +30,7 @@ public class RedisShortUrlCache implements ShortUrlCache{
             }
 
             return new CacheLookupResult.Hit(new ShortUrl(shortCode, value));
-        } catch (JedisConnectionException e) {
+        } catch (JedisException e) {
             throw new CacheUnavailableException(
                     "Redis cache unavailable",
                     e
@@ -46,7 +46,7 @@ public class RedisShortUrlCache implements ShortUrlCache{
                     shortUrl.getOriginalUrl(),
                     SetParams.setParams().ex(URL_TTL_SECONDS)
             );
-        } catch (JedisConnectionException e) {
+        } catch (JedisException e) {
             throw new CacheUnavailableException(
                     "Redis cache unavailable",
                     e
@@ -62,7 +62,7 @@ public class RedisShortUrlCache implements ShortUrlCache{
                     NOT_FOUND_MARKER,
                     SetParams.setParams().ex(NOT_FOUND_TTL_SECONDS)
             );
-        } catch (JedisConnectionException e) {
+        } catch (JedisException e) {
             throw new CacheUnavailableException(
                     "Redis cache unavailable",
                     e

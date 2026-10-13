@@ -1,5 +1,6 @@
 import redis.clients.jedis.RedisClient;
 import redis.clients.jedis.exceptions.JedisConnectionException;
+import redis.clients.jedis.exceptions.JedisException;
 
 import java.util.List;
 
@@ -93,12 +94,17 @@ public class RedisRateLimiter implements RateLimiter {
             try {
                 return executeLimiter(clientIp);
             }
-            catch (JedisConnectionException secondFailure) {
+            catch (JedisException secondFailure) {
                 throw new RateLimiterUnavailableException(
                         "Rate limiter unavailable after retry",
                         secondFailure
                 );
             }
+        } catch (JedisException failure) {
+            throw new RateLimiterUnavailableException(
+                    "Rate limiter unavailable",
+                    failure
+            );
         }
     }
 
