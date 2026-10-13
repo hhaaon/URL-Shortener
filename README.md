@@ -9,14 +9,13 @@ It allows a client to:
 - create a short URL from a normal URL
 - access the short URL and be redirected to the original URL
 
-The system also uses PostgreSQL for persistence, Redis for caching,
-and Redis-backed rate limiting to protect URL creation.
+The system uses PostgreSQL for persistence, Redis for caching, and Redis-backed rate limiting to protect URL creation.
 
 ## Technology
 
 - Java 21
 - Maven
-- Java HttpServer
+- Java `HttpServer`
 - Jackson
 - JDBC
 - PostgreSQL
@@ -32,25 +31,32 @@ Creates a new short URL.
 
 Example request:
 
+```json
 {
-"url": "https://example.com"
+  "url": "https://example.com"
 }
+```
 
 Success:
 
+```text
 201 Created
+```
 
 Example response:
 
+```json
 {
-"shortUrl": "http://localhost:8080/abc123"
+  "shortUrl": "http://localhost:8080/abc123"
 }
+```
 
 Possible errors:
 
-400 Bad Request
-429 Too Many Requests
-503 Service Unavailable
+- `400 Bad Request` — malformed JSON or invalid URL
+- `415 Unsupported Media Type` — request is not JSON
+- `429 Too Many Requests` — rate limit exhausted
+- `503 Service Unavailable` — rate limiter unavailable
 
 ### GET /{shortCode}
 
@@ -58,12 +64,14 @@ Redirects to the original URL.
 
 Success:
 
+```text
 302 Found
 Location: https://example.com
+```
 
 Possible error:
 
-404 Not Found
+- `404 Not Found` — short code does not exist
 
 ## Architecture
 
@@ -114,6 +122,8 @@ resolve client IP
 ↓
 rate limiter
 ↓
+check Content-Type
+↓
 parse JSON request
 ↓
 validate original URL
@@ -125,9 +135,9 @@ save mapping to PostgreSQL
 201 Created
 ```
 
-If the generated short code already exists, the service generates another code and retries.
+If the generated short code already exists, the service generates another candidate and retries.
 
-Rate limiting happens before request parsing and database writes so rejected traffic does not perform the expensive state-changing work.
+Rate limiting happens before request parsing and database writes so rejected traffic does not perform the more expensive state-changing work.
 
 ### Redirect
 
@@ -164,7 +174,7 @@ If Redis is unavailable during a redirect, the application falls back to Postgre
 
 ## Redis Usage
 
-Redis is used for two separate purposes in this project:
+Redis is used for two separate purposes in this project.
 
 ### 1. Redirect Cache
 
@@ -249,7 +259,8 @@ The application handles different failures according to the role of the failing 
 
 | Situation | Behavior |
 |---|---|
-| Invalid URL | `400 Bad Request` |
+| Malformed JSON or invalid URL | `400 Bad Request` |
+| Non-JSON creation request | `415 Unsupported Media Type` |
 | Unknown short code | `404 Not Found` |
 | Short-code collision | Generate another code and retry |
 | Non-collision database failure | Propagate the failure; do not retry it as a collision |
@@ -297,31 +308,41 @@ The application reads runtime configuration from environment variables.
 
 ### Database
 
-```text
-DB_HOST
-DB_PORT
-DB_NAME
-DB_USER
-DB_PASSWORD
+| Variable | Default | Required |
+|---|---|---|
+| `DB_HOST` | `127.0.0.1` | No |
+| `DB_PORT` | `5433` | No |
+| `DB_NAME` | `url_shortener` | No |
+| `DB_USER` | `postgres` | No |
+| `DB_PASSWORD` | none | Yes |
+
+`DB_PASSWORD` has no hard-coded default.
+
+If it is missing or blank, the application fails fast during startup.
+
+The project intentionally defaults to PostgreSQL port `5433`.
+
+If your PostgreSQL installation uses the standard port `5432`, override the default before starting the application.
+
+PowerShell example:
+
+```powershell
+$env:DB_PORT = "5432"
 ```
-
-`DB_PASSWORD` is required and has no hard-coded default.
-
-If it is missing, the application fails fast during startup.
 
 ### Redis
 
-```text
-REDIS_HOST
-REDIS_PORT
-```
+| Variable | Default |
+|---|---|
+| `REDIS_HOST` | `localhost` |
+| `REDIS_PORT` | `6379` |
 
 ### HTTP Server
 
-```text
-APP_PORT
-PUBLIC_BASE_URL
-```
+| Variable | Default |
+|---|---|
+| `APP_PORT` | `8080` |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` |
 
 `APP_PORT` is the internal port where the Java process listens.
 
@@ -341,13 +362,27 @@ Java application on port 8080
 
 ### Trusted Proxy
 
+Environment variable:
+
 ```text
 TRUSTED_PROXY_IP
 ```
 
+`TRUSTED_PROXY_IP` is blank by default.
+
 Forwarded client-IP headers are trusted only when the immediate TCP peer matches the configured trusted proxy.
 
-If no trusted proxy is configured, forwarded client-IP headers are ignored.
+If no trusted proxy is configured, or if the immediate peer does not match the configured proxy, `X-Forwarded-For` is ignored and the TCP peer address is used.
+
+This project supports one trusted reverse proxy.
+
+When that proxy connects directly to the application, the first `X-Forwarded-For` value is used as the client identity for rate limiting.
+
+If that first value is missing or blank, the application falls back to the TCP peer address.
+
+The trusted proxy is expected to sanitize or overwrite client-supplied forwarding headers.
+
+This application does not implement general multi-proxy trust-chain validation.
 
 ## Running Locally
 
@@ -360,7 +395,7 @@ If no trusted proxy is configured, forwarded client-IP headers are ignored.
 
 ### PostgreSQL
 
-Create a database:
+Create a database named:
 
 ```text
 url_shortener
@@ -375,15 +410,21 @@ CREATE TABLE short_urls (
 );
 ```
 
-Set the required database password environment variable before starting the application.
+The application uses PostgreSQL port `5433` by default.
 
-Example in PowerShell:
+If your local PostgreSQL server runs on `5432`, configure:
+
+```powershell
+$env:DB_PORT = "5432"
+```
+
+Set the required database password:
 
 ```powershell
 $env:DB_PASSWORD = "<your-local-password>"
 ```
 
-Other configuration values may use local defaults or be supplied through environment variables.
+Other database configuration values may use their defaults or be supplied through environment variables.
 
 ### Redis
 
@@ -424,31 +465,62 @@ By default, the HTTP server listens on:
 http://localhost:8080
 ```
 
+### Example Request
+
+PowerShell:
+
+```powershell
+Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8080/api/v1/urls" `
+    -ContentType "application/json" `
+    -Body '{"url":"https://example.com"}'
+```
+
+A successful request returns a generated short URL.
+
+Opening the returned short URL causes the service to respond with an HTTP redirect to the original URL.
+
 ## Testing
 
 The project uses JUnit 5.
 
-Run the automated test suite with:
+Run the complete automated test suite with:
 
 ```powershell
 mvn test
 ```
 
+Run only the HTTP-server tests with:
+
+```powershell
+mvn -Dtest=UrlShortenerHttpServerTest test
+```
+
 The focused tests cover important system behavior rather than only trivial getters or constructors.
 
-Examples include:
+Existing behavior includes tests for:
 
-- cache hit skips the repository
-- cache miss falls back to the repository and populates Redis
-- negative cache hit skips PostgreSQL
-- repository miss creates a negative-cache entry
-- Redis cache outage falls back to PostgreSQL
-- short-code collision causes another code to be generated
-- non-collision database failure is not retried as a collision
-- valid URL creation returns `201`
-- invalid URL returns `400`
-- exhausted rate limiter returns `429` with `Retry-After`
-- unavailable rate limiter returns `503`
+- cache hit skipping the repository
+- cache miss falling back to the repository and populating Redis
+- negative cache hit skipping PostgreSQL
+- repository miss creating a negative-cache entry
+- Redis cache outage falling back to PostgreSQL
+- short-code collision generating another candidate
+- non-collision database failure not being retried as a collision
+- valid URL creation returning `201`
+- invalid URL returning `400`
+- exhausted rate limiter returning `429` with `Retry-After`
+- unavailable rate limiter returning `503`
+
+The trusted-proxy HTTP regression tests additionally verify that:
+
+- a direct client cannot choose its rate-limit identity using `X-Forwarded-For`
+- an untrusted TCP peer cannot supply a forwarded client identity
+- the configured trusted proxy can supply the forwarded client identity
+- a missing forwarded value falls back to the TCP peer
+- only the first value of the supported `X-Forwarded-For` form is used
+- a blank first forwarded value falls back to the TCP peer
 
 ## Design Decisions
 
@@ -488,11 +560,11 @@ Negative entries use a shorter TTL because a code that does not exist now may be
 
 URL creation is protected with a token bucket.
 
-The limiter uses Redis so multiple application instances share one limiter state.
+The limiter uses Redis so multiple application instances can share one limiter state.
 
-The complete refill/check/consume/update operation executes atomically in Redis using Lua.
+The complete refill, check, consume, update, and expiry operation executes atomically in Redis using Lua.
 
-This prevents race conditions between application instances.
+This prevents race conditions between application instances while updating a bucket.
 
 ### Rate-Limiter Failure Policy
 
@@ -506,28 +578,33 @@ A limiter outage therefore results in:
 503 Service Unavailable
 ```
 
-rather than allowing unlimited creation traffic.
+rather than allowing URL creation without the configured rate-limit decision.
 
-### Trusted Proxy Boundary
+### Trusted Proxy Design
 
-`X-Forwarded-For` is not trusted automatically.
+Rate limiting needs a stable client identity, but HTTP forwarding headers can be supplied by clients and therefore cannot be trusted by default.
 
-It is considered only when the immediate connection came from a configured trusted proxy.
+The application only accepts `X-Forwarded-For` when the immediate TCP peer matches the configured trusted proxy.
 
-This prevents direct clients from selecting arbitrary rate-limit identities through spoofed HTTP headers.
+Direct clients and connections from any other peer are rate-limited using their TCP peer address instead.
+
+This keeps the trust boundary explicit while deliberately supporting only a simple single-proxy deployment.
+
+The configured reverse proxy is responsible for sanitizing or overwriting forwarding headers before sending requests to the application.
 
 ## Known Limitations
 
-This project intentionally stops at the current backend-fundamentals depth.
+This project intentionally stops at a reasonable backend-portfolio scope rather than attempting to be a complete production URL-shortening platform.
 
 Known limitations include:
 
 - Uses Java's built-in `HttpServer` rather than Spring Boot.
 - Uses `PGSimpleDataSource` rather than a production connection pool such as HikariCP.
 - Has no authentication or user accounts.
-- Supports only a simplified trusted-proxy configuration.
+- Supports only a simplified single trusted-proxy configuration.
+- Does not validate a general chain of multiple reverse proxies.
 - URL validation checks syntax and allowed schemes but does not verify that the destination is reachable.
-- Rate-limit policy values are currently defined in the limiter implementation rather than fully externalized.
+- Rate-limit policy values are defined in the limiter implementation rather than fully externalized.
 - No structured production logging.
 - No metrics, distributed tracing, or health endpoints.
 - No automated deployment or container orchestration.
@@ -537,4 +614,4 @@ Known limitations include:
 - No analytics or click tracking.
 - No multi-region or high-availability architecture.
 
-These limitations are documented rather than solved here because several belong to later stages of the backend roadmap.
+These limitations are documented rather than hidden because several belong to later infrastructure and production-engineering stages.

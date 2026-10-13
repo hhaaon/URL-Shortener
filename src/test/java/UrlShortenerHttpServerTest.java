@@ -5,6 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -455,4 +456,697 @@ public class UrlShortenerHttpServerTest {
             server.stop();
         }
     }
+
+    @Test
+    void createUrl_noTrustedProxy_ignoresForwardedForForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9094,
+                        "http://127.0.0.1:9094",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9094/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .header(
+                                    "X-Forwarded-For",
+                                    "203.0.113.25"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "127.0.0.1",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_untrustedPeer_ignoresForwardedForForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9095,
+                        "http://127.0.0.1:9095",
+                        "192.0.2.10"
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9095/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .header(
+                                    "X-Forwarded-For",
+                                    "203.0.113.25"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "127.0.0.1",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_trustedProxy_usesForwardedClientForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9096,
+                        "http://127.0.0.1:9096",
+                        "127.0.0.1"
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9096/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .header(
+                                    "X-Forwarded-For",
+                                    "203.0.113.25"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "203.0.113.25",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_trustedProxy_missingForwardedFor_usesPeerForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9097,
+                        "http://127.0.0.1:9097",
+                        "127.0.0.1"
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9097/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "127.0.0.1",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_trustedProxy_multipleForwardedValues_usesFirstValueForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9098,
+                        "http://127.0.0.1:9098",
+                        "127.0.0.1"
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9098/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .header(
+                                    "X-Forwarded-For",
+                                    "203.0.113.25, 198.51.100.8"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "203.0.113.25",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_trustedProxy_blankFirstForwardedValue_usesPeerForRateLimitKey()
+            throws Exception {
+
+        // Arrange
+        ShortCodeGenerator generator = () -> "abc123";
+
+        ShortUrlRepository repository = new ShortUrlRepository() {
+            @Override
+            public void save(ShortUrl shortUrl) {
+                // success
+            }
+
+            @Override
+            public Optional<ShortUrl> findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Lookup should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlCache cache = new ShortUrlCache() {
+            @Override
+            public CacheLookupResult findByShortCode(String shortCode) {
+                throw new AssertionError(
+                        "Cache lookup should not be called during creation"
+                );
+            }
+
+            @Override
+            public void put(ShortUrl shortUrl) {
+                throw new AssertionError(
+                        "Cache put should not be called during creation"
+                );
+            }
+
+            @Override
+            public void putNotFound(String shortCode) {
+                throw new AssertionError(
+                        "Negative cache should not be called during creation"
+                );
+            }
+        };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        AtomicReference<String> capturedKey =
+                new AtomicReference<>();
+
+        RateLimiter rateLimiter = key -> {
+            capturedKey.set(key);
+            return new RateLimitDecision.Allowed();
+        };
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9099,
+                        "http://127.0.0.1:9099",
+                        "127.0.0.1"
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9099/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .header(
+                                    "X-Forwarded-For",
+                                    ", 203.0.113.25"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            // Act
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            // Assert
+            assertEquals(201, response.statusCode());
+
+            assertEquals(
+                    "127.0.0.1",
+                    capturedKey.get()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
 }

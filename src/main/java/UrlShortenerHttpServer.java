@@ -18,7 +18,12 @@ public class UrlShortenerHttpServer {
     private final String publicBaseUrl;
 
 
-    public UrlShortenerHttpServer(ShortUrlService shortUrlService, RateLimiter rateLimiter, int port, String publicBaseurl, String trustedProxyIp) {
+    public UrlShortenerHttpServer
+            (ShortUrlService shortUrlService,
+             RateLimiter rateLimiter,
+             int port, String publicBaseurl,
+             String trustedProxyIp)
+    {
         this.shortUrlService = shortUrlService;
         this.rateLimiter = rateLimiter;
         this.port = port;
@@ -53,16 +58,21 @@ public class UrlShortenerHttpServer {
                         .getAddress()
                         .getHostAddress();
 
+
+
         String forwardedFor =
                 exchange.getRequestHeaders()
                         .getFirst("X-Forwarded-For");
 
-        if (forwardedFor == null || forwardedFor.isBlank()) {
+        if (forwardedFor == null
+                || forwardedFor.isBlank()
+                || !peerIp.equals(trustedProxyIp)
+        ) {
             return peerIp;
         }
 
         String clientIp =
-                forwardedFor.split(",")[0].trim();
+                forwardedFor.split(",", -1)[0].trim();
 
         if (clientIp.isBlank()) {
             return peerIp;
