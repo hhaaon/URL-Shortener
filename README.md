@@ -53,9 +53,11 @@ Example response:
 
 Possible errors:
 
-- `400 Bad Request` — malformed JSON or invalid URL
+- `400 Bad Request` — malformed JSON, missing/null URL, or invalid URL
+- `413 Payload Too Large` — request body exceeds 8 KiB
 - `415 Unsupported Media Type` — request is not JSON
 - `429 Too Many Requests` — rate limit exhausted
+- `500 Internal Server Error` — unexpected backend failure
 - `503 Service Unavailable` — rate limiter unavailable
 
 ### GET /{shortCode}
@@ -268,6 +270,8 @@ The application handles different failures according to the role of the failing 
 | Redis cache unavailable during redirect | Fall back to PostgreSQL |
 | Rate limit exhausted | `429 Too Many Requests` with `Retry-After` |
 | Rate-limiter Redis unavailable | Fail closed with `503 Service Unavailable` |
+| Oversized creation request | `413 Payload Too Large` |
+| Unexpected creation backend failure | `500 Internal Server Error` |
 
 ### Why Redis Failures Behave Differently
 

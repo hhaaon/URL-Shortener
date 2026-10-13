@@ -1149,4 +1149,577 @@ public class UrlShortenerHttpServerTest {
         }
     }
 
+    @Test
+    void createUrl_jsonNull_returns400()
+            throws Exception {
+
+        ShortCodeGenerator generator =
+                () -> "abc123";
+
+        ShortUrlRepository repository =
+                new ShortUrlRepository() {
+
+                    @Override
+                    public void save(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Repository should not be called"
+                        );
+                    }
+
+                    @Override
+                    public Optional<ShortUrl> findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Repository lookup should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlCache cache =
+                new ShortUrlCache() {
+
+                    @Override
+                    public CacheLookupResult findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Cache lookup should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void put(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Cache put should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void putNotFound(String shortCode) {
+                        throw new AssertionError(
+                                "Negative cache should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        RateLimiter rateLimiter =
+                key -> new RateLimitDecision.Allowed();
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9100,
+                        "http://127.0.0.1:9100",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9100/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers
+                                            .ofString("null")
+                            )
+                            .build();
+
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            assertEquals(
+                    400,
+                    response.statusCode()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_oversizedBody_returns413()
+            throws Exception {
+
+        ShortCodeGenerator generator =
+                () -> "abc123";
+
+        ShortUrlRepository repository =
+                new ShortUrlRepository() {
+
+                    @Override
+                    public void save(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Repository should not be called for oversized request"
+                        );
+                    }
+
+                    @Override
+                    public Optional<ShortUrl> findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Repository lookup should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlCache cache =
+                new ShortUrlCache() {
+
+                    @Override
+                    public CacheLookupResult findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Cache lookup should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void put(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Cache put should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void putNotFound(String shortCode) {
+                        throw new AssertionError(
+                                "Negative cache should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        RateLimiter rateLimiter =
+                key -> new RateLimitDecision.Allowed();
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9101,
+                        "http://127.0.0.1:9101",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            String oversizedUrl =
+                    "https://example.com/"
+                            + "a".repeat(8 * 1024);
+
+            String body =
+                    "{\"url\":\""
+                            + oversizedUrl
+                            + "\"}";
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9101/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers
+                                            .ofString(body)
+                            )
+                            .build();
+
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            assertEquals(
+                    413,
+                    response.statusCode()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_unexpectedServiceFailure_returns500()
+            throws Exception {
+
+        ShortCodeGenerator generator =
+                () -> "abc123";
+
+        ShortUrlRepository repository =
+                new ShortUrlRepository() {
+
+                    @Override
+                    public void save(ShortUrl shortUrl) {
+                        throw new RuntimeException(
+                                "database failure"
+                        );
+                    }
+
+                    @Override
+                    public Optional<ShortUrl> findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Repository lookup should not be called during creation"
+                        );
+                    }
+                };
+
+        ShortUrlCache cache =
+                new ShortUrlCache() {
+
+                    @Override
+                    public CacheLookupResult findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Cache lookup should not be called during creation"
+                        );
+                    }
+
+                    @Override
+                    public void put(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Cache put should not be called after repository failure"
+                        );
+                    }
+
+                    @Override
+                    public void putNotFound(String shortCode) {
+                        throw new AssertionError(
+                                "Negative cache should not be called during creation"
+                        );
+                    }
+                };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        RateLimiter rateLimiter =
+                key -> new RateLimitDecision.Allowed();
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9102,
+                        "http://127.0.0.1:9102",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9102/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":\"https://example.com\"}"
+                                    )
+                            )
+                            .build();
+
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            assertEquals(
+                    500,
+                    response.statusCode()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_missingUrl_returns400()
+            throws Exception {
+
+        ShortCodeGenerator generator =
+                () -> "abc123";
+
+        ShortUrlRepository repository =
+                new ShortUrlRepository() {
+
+                    @Override
+                    public void save(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Repository should not be called"
+                        );
+                    }
+
+                    @Override
+                    public Optional<ShortUrl> findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Repository lookup should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlCache cache =
+                new ShortUrlCache() {
+
+                    @Override
+                    public CacheLookupResult findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Cache lookup should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void put(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Cache put should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void putNotFound(String shortCode) {
+                        throw new AssertionError(
+                                "Negative cache should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        RateLimiter rateLimiter =
+                key -> new RateLimitDecision.Allowed();
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9103,
+                        "http://127.0.0.1:9103",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9103/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers
+                                            .ofString("{}")
+                            )
+                            .build();
+
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            assertEquals(
+                    400,
+                    response.statusCode()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void createUrl_nullUrl_returns400()
+            throws Exception {
+
+        ShortCodeGenerator generator =
+                () -> "abc123";
+
+        ShortUrlRepository repository =
+                new ShortUrlRepository() {
+
+                    @Override
+                    public void save(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Repository should not be called"
+                        );
+                    }
+
+                    @Override
+                    public Optional<ShortUrl> findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Repository lookup should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlCache cache =
+                new ShortUrlCache() {
+
+                    @Override
+                    public CacheLookupResult findByShortCode(
+                            String shortCode
+                    ) {
+                        throw new AssertionError(
+                                "Cache lookup should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void put(ShortUrl shortUrl) {
+                        throw new AssertionError(
+                                "Cache put should not be called"
+                        );
+                    }
+
+                    @Override
+                    public void putNotFound(String shortCode) {
+                        throw new AssertionError(
+                                "Negative cache should not be called"
+                        );
+                    }
+                };
+
+        ShortUrlService service =
+                new ShortUrlService(
+                        generator,
+                        repository,
+                        cache
+                );
+
+        RateLimiter rateLimiter =
+                key -> new RateLimitDecision.Allowed();
+
+        UrlShortenerHttpServer server =
+                new UrlShortenerHttpServer(
+                        service,
+                        rateLimiter,
+                        9104,
+                        "http://127.0.0.1:9104",
+                        ""
+                );
+
+        server.start();
+
+        try {
+            HttpClient client =
+                    HttpClient.newHttpClient();
+
+            HttpRequest request =
+                    HttpRequest.newBuilder()
+                            .uri(
+                                    URI.create(
+                                            "http://127.0.0.1:9104/api/v1/urls"
+                                    )
+                            )
+                            .header(
+                                    "Content-Type",
+                                    "application/json"
+                            )
+                            .POST(
+                                    HttpRequest.BodyPublishers.ofString(
+                                            "{\"url\":null}"
+                                    )
+                            )
+                            .build();
+
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
+                    );
+
+            assertEquals(
+                    400,
+                    response.statusCode()
+            );
+
+        } finally {
+            server.stop();
+        }
+    }
+
+
+
 }

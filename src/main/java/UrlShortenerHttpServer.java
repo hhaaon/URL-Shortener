@@ -9,21 +9,25 @@ import java.nio.charset.StandardCharsets;
 
 public class UrlShortenerHttpServer {
 
+    private static final int MAX_REQUEST_BODY_BYTES = 8 * 1024;
+
     private final ShortUrlService shortUrlService;
     private final RateLimiter rateLimiter;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String trustedProxyIp;
     private final int port;
-    private HttpServer server;
     private final String publicBaseUrl;
 
+    private HttpServer server;
 
-    public UrlShortenerHttpServer
-            (ShortUrlService shortUrlService,
-             RateLimiter rateLimiter,
-             int port, String publicBaseurl,
-             String trustedProxyIp)
-    {
+
+    public UrlShortenerHttpServer(
+            ShortUrlService shortUrlService,
+            RateLimiter rateLimiter,
+            int port,
+            String publicBaseurl,
+            String trustedProxyIp
+    ) {
         this.shortUrlService = shortUrlService;
         this.rateLimiter = rateLimiter;
         this.port = port;
@@ -48,7 +52,8 @@ public class UrlShortenerHttpServer {
         server.start();
 
         System.out.println(
-                "URL Shortener listening on http://localhost:8080"
+                "URL Shortener listening on http://localhost:"
+                        + port
         );
     }
 
@@ -58,16 +63,17 @@ public class UrlShortenerHttpServer {
                         .getAddress()
                         .getHostAddress();
 
-
+        if (trustedProxyIp == null
+                || trustedProxyIp.isBlank()
+                || !peerIp.equals(trustedProxyIp)
+        ) {
+            return peerIp;
+        }
 
         String forwardedFor =
                 exchange.getRequestHeaders()
                         .getFirst("X-Forwarded-For");
-
-        if (forwardedFor == null
-                || forwardedFor.isBlank()
-                || !peerIp.equals(trustedProxyIp)
-        ) {
+        if (forwardedFor == null || forwardedFor.isBlank()) {
             return peerIp;
         }
 
@@ -82,7 +88,7 @@ public class UrlShortenerHttpServer {
     }
 
     private void handleCreateShortUrl(HttpExchange exchange) throws IOException {
-        try{
+        try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
@@ -109,53 +115,84 @@ public class UrlShortenerHttpServer {
                 return;
             }
 
+            String contentType =
+                    exchange.getRequestHeaders()
+                            .getFirst("Content-Type");
 
-            String contentType = exchange.getRequestHeaders()
-                    .getFirst("Content-Type");
-
-            if (contentType == null ||
-                    !contentType.startsWith("application/json")) {
+            if (contentType == null
+                    || !contentType.startsWith("application/json")) {
                 exchange.sendResponseHeaders(415, -1);
                 return;
             }
 
-            CreateShortUrlRequest request;
+            byte[] requestBody =
+                    exchange.getRequestBody()
+                            .readNBytes(MAX_REQUEST_BODY_BYTES + 1);
+
+            if (requestBody.length > MAX_REQUEST_BODY_BYTES) {
+                exchange.sendResponseHeaders(413, -1);
+                return;
+            }
+
+            final CreateShortUrlRequest request;
 
             try {
-                request = objectMapper.readValue(
-                        exchange.getRequestBody(),
-                        CreateShortUrlRequest.class
-                );
+                request =
+                        objectMapper.readValue(
+                                requestBody,
+                                CreateShortUrlRequest.class
+                        );
             } catch (JsonProcessingException e) {
+                exchange.sendResponseHeaders(400, -1);
+                return;
+            }
+
+            if (request == null) {
                 exchange.sendResponseHeaders(400, -1);
                 return;
             }
 
             try {
                 ShortUrl created =
-                        shortUrlService.createShortUrl(request.url());
+                        shortUrlService.createShortUrl(
+                                request.url()
+                        );
 
                 String publicUrl =
-                        publicBaseUrl + '/' + created.getShortCode();
+                        publicBaseUrl
+                                + '/'
+                                + created.getShortCode();
 
                 CreateShortUrlResponse response =
-                        new CreateShortUrlResponse(publicUrl);
+                        new CreateShortUrlResponse(
+                                publicUrl
+                        );
 
-                byte[] responseBody = objectMapper
-                        .writeValueAsString(response)
-                        .getBytes(StandardCharsets.UTF_8);
+                byte[] responseBody =
+                        objectMapper
+                                .writeValueAsString(response)
+                                .getBytes(StandardCharsets.UTF_8);
 
                 exchange.getResponseHeaders().set(
                         "Content-Type",
                         "application/json; charset=utf-8"
                 );
 
-                exchange.sendResponseHeaders(201, responseBody.length);
-                exchange.getResponseBody().write(responseBody);
+                exchange.sendResponseHeaders(
+                        201,
+                        responseBody.length
+                );
+
+                exchange.getResponseBody()
+                        .write(responseBody);
 
             } catch (IllegalArgumentException e) {
                 exchange.sendResponseHeaders(400, -1);
+
+            } catch (RuntimeException e) {
+                exchange.sendResponseHeaders(500, -1);
             }
+
         } finally {
             exchange.close();
         }
