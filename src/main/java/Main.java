@@ -1,9 +1,6 @@
-import com.sun.net.httpserver.HttpServer;
 import redis.clients.jedis.RedisClient;
 
 public class Main {
-
-    private HttpServer server;
 
     public static void main(String[] args) throws Exception {
         String dbHost =

@@ -41,7 +41,6 @@ public class PostgresShortUrlRepository implements ShortUrlRepository{
 
     @Override
     public Optional<ShortUrl> findByShortCode(String shortCode) {
-        System.out.println("POSTGRES LOOKUP: " + shortCode);
         String sql = """
                 SELECT short_code, original_url
                 FROM short_urls
